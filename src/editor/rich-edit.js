@@ -3,6 +3,7 @@ import SelectionManager from '../core/selection.js';
 import History from '../core/history.js';
 import Commands from '../core/commands.js';
 import Autosave from '../core/autosave.js';
+import ImageResize from '../core/image-resize.js';
 import { sanitizeHTML } from '../core/sanitize.js';
 import Toolbar from '../ui/toolbar.js';
 import Modal from '../ui/modal.js';
@@ -22,9 +23,13 @@ lalu state-nya disinkronkan kembali dengan posisi kursor.</blockquote>
   <li>Warna teks &amp; warna sorotan</li>
   <li>Daftar berbutir dan bernomor, indentasi</li>
   <li>Tautan, gambar dari URL atau berkas komputer (popup 2 pilihan), unggah cepat</li>
+  <li>Klik gambar → bingkai dengan 12 titik handle untuk resize &amp; stretch
+      (sudut = dua sumbu, tepi = satu sumbu, Shift+sudut = rasio asli)</li>
   <li>Undo/redo dengan riwayat buatan sendiri</li>
   <li>Mode sumber HTML, autosave, tema gelap</li>
 </ul>
+<p>Coba klik gambar di bawah ini lalu tarik titik-titik di bingkainya untuk mengubah ukurannya:</p>
+<p><img src="https://picsum.photos/seed/richedit/480/270" alt="Contoh gambar yang bisa di-resize" style="max-width:100%"></p>
 <p>Selamat mencoba! 🎉</p>
 `;
 
@@ -47,6 +52,8 @@ export class RichEdit {
    * @param {string} [options.initialHtml=DEFAULT_HTML] - konten awal (bila tidak ada tersimpan)
    * @param {boolean} [options.loadSaved=true] - muat konten tersimpan saat init
    * @param {boolean} [options.sanitizePaste=true]
+   * @param {boolean} [options.imageResize=true] - klik gambar menampilkan bingkai
+   *        dengan 12 titik handle untuk resize/stretch
    */
   constructor(options = {}) {
     this.options = Object.assign({
@@ -58,7 +65,8 @@ export class RichEdit {
       historyLimit: 120,
       initialHtml: DEFAULT_HTML,
       loadSaved: true,
-      sanitizePaste: true
+      sanitizePaste: true,
+      imageResize: true
     }, options);
 
     this._listeners = {};
@@ -173,6 +181,19 @@ export class RichEdit {
     this.selection.onSync = () => {
       this.toolbar.sync(this.selection);
     };
+
+    // Resize gambar: klik <img> → bingkai + 12 titik handle (stretch/resize).
+    if (this.options.imageResize) {
+      this.imageResize = new ImageResize({
+        editor: this.editor,
+        onCommit: () => {
+          this.history.commit();
+          if (this.autosaveInstance) this.autosaveInstance.saveDebounced();
+          this._emit('change', { html: this.getHTML() });
+          this._emit('imageResize', { html: this.getHTML() });
+        }
+      });
+    }
   }
 
   /* ============================ Events ============================ */
@@ -380,6 +401,7 @@ export class RichEdit {
 
   destroy() {
     this.selection.destroy();
+    if (this.imageResize) this.imageResize.destroy();
     this.modal.destroy();
     this.editor.remove();
     this.sourceEl.remove();

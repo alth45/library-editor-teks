@@ -255,10 +255,67 @@
   }
   #editor pre code { background: none; border: none; padding: 0; }
   #editor a { color: var(--accent); text-decoration: underline; }
-  #editor img { max-width: 100%; border-radius: 10px; display: block; margin: .6em 0; }
+  #editor img { max-width: 100%; border-radius: 10px; display: block; margin: .6em 0; cursor: pointer; }
   #editor hr { border: none; border-top: 2px solid var(--border); margin: 1.4em 0; }
   #editor table { border-collapse: collapse; width: 100%; margin: .8em 0; }
   #editor td, #editor th { border: 1px solid var(--border); padding: 8px 10px; }
+
+  /* ============ RESIZE GAMBAR: bingkai + 12 titik handle ============ */
+  .re-img-resize {
+    position: absolute;
+    z-index: 9999;
+    pointer-events: none; /* hanya handle yang interaktif */
+  }
+  .re-img-resize[hidden] { display: none; }
+
+  .re-img-frame {
+    position: absolute;
+    inset: 0;
+    border: 2px dashed var(--accent);
+    border-radius: 10px;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, .15);
+  }
+
+  .re-img-handle {
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    background: #fff;
+    border: 2px solid var(--accent);
+    border-radius: 50%;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, .3);
+    pointer-events: auto;
+    touch-action: none;
+  }
+  .re-img-handle:hover { transform: scale(1.25); }
+
+  /* Titik sudut sedikit lebih besar agar mudah ditarik */
+  .re-rh-nw, .re-rh-ne, .re-rh-sw, .re-rh-se { width: 14px; height: 14px; }
+
+  /* Titik tengah tepi dibuat persegi panjang pipih mengikuti arah sumbunya */
+  .re-rh-n, .re-rh-s, .re-rh-ct, .re-rh-cb { width: 16px; height: 8px; border-radius: 4px; }
+  .re-rh-e, .re-rh-w, .re-rh-ml, .re-rh-mr { width: 8px; height: 16px; border-radius: 4px; }
+
+  .re-img-size {
+    position: absolute;
+    top: -26px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--panel-2, #222);
+    color: var(--text, #eee);
+    border: 1px solid var(--border, #444);
+    font-size: 11px;
+    line-height: 1;
+    padding: 4px 8px;
+    border-radius: 6px;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  .re-img-size[hidden] { display: none; }
+
+  .re-img-active { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .re-img-resizing { opacity: .9; user-select: none; }
+  .re-resizing .re-img-frame { border-style: solid; }
 
   /* ===================== SOURCE VIEW ===================== */
   #source {
@@ -1006,7 +1063,8 @@ const ALLOWED_ATTRS = {
 const ALLOWED_STYLES = [
   'color', 'background-color', 'font-weight', 'font-style',
   'text-decoration', 'text-decoration-line', 'text-align',
-  'font-size', 'font-family'
+  'font-size', 'font-family',
+  'width', 'height', 'max-width'
 ];
 
 function sanitizeHTML(html) {
@@ -1232,6 +1290,220 @@ const saveContentDebounced = debounce(() => {
 }, 800);
 
 /* ------------------------------------------------------------------ */
+/* 15b. RESIZE GAMBAR — bingkai + 12 titik handle (resize & stretch)   */
+/* ------------------------------------------------------------------ */
+/* Saat <img> di dalam editor diklik, muncul overlay berisi bingkai    */
+/* putus-putus dan 12 titik: 4 sudut (nw/ne/sw/se), 4 titik tengah     */
+/* tepi (n/s/e/w), serta 4 titik tambahan di tiap sisi                 */
+/* (ct, cb = stretch tinggi; ml, mr = stretch lebar).                  */
+/* Tarik sudut sambil menahan Shift untuk mengunci rasio aspek asli.   */
+
+const IMG_HANDLES = [
+  { dir: 'nw', cls: 're-rh-nw', cursor: 'nwse-resize', top: 0,    left: 0   },
+  { dir: 'n',  cls: 're-rh-n',  cursor: 'ns-resize',   top: 0,    left: 0.5 },
+  { dir: 'ne', cls: 're-rh-ne', cursor: 'nesw-resize', top: 0,    left: 1   },
+  { dir: 'ct', cls: 're-rh-ct', cursor: 'ns-resize',   top: 0,    left: 0.25 },
+  { dir: 'e',  cls: 're-rh-e',  cursor: 'ew-resize',   top: 0.5,  left: 1   },
+  { dir: 'mr', cls: 're-rh-mr', cursor: 'ew-resize',   top: 0.25, left: 1   },
+  { dir: 'se', cls: 're-rh-se', cursor: 'nwse-resize', top: 1,    left: 1   },
+  { dir: 's',  cls: 're-rh-s',  cursor: 'ns-resize',   top: 1,    left: 0.5 },
+  { dir: 'sw', cls: 're-rh-sw', cursor: 'nesw-resize', top: 1,    left: 0   },
+  { dir: 'cb', cls: 're-rh-cb', cursor: 'ns-resize',   top: 1,    left: 0.75 },
+  { dir: 'w',  cls: 're-rh-w',  cursor: 'ew-resize',   top: 0.5,  left: 0   },
+  { dir: 'ml', cls: 're-rh-ml', cursor: 'ew-resize',   top: 0.75, left: 0   }
+];
+const IMG_MIN_SIZE = 24; // px minimum agar gambar tidak hilang tak terlihat
+
+const imgOverlay = document.createElement('div');
+imgOverlay.className = 're-img-resize';
+imgOverlay.contentEditable = 'false';
+imgOverlay.hidden = true;
+document.body.appendChild(imgOverlay);
+
+const imgFrame = document.createElement('div');
+imgFrame.className = 're-img-frame';
+imgOverlay.appendChild(imgFrame);
+
+const imgSizeBadge = document.createElement('span');
+imgSizeBadge.className = 're-img-size';
+imgSizeBadge.hidden = true;
+imgOverlay.appendChild(imgSizeBadge);
+
+for (const h of IMG_HANDLES) {
+  const el = document.createElement('span');
+  el.className = `re-img-handle ${h.cls}`;
+  el.dataset.dir = h.dir;
+  el.style.cursor = h.cursor;
+  el.style.top = `calc(${h.top * 100}% - 6px)`;
+  el.style.left = `calc(${h.left * 100}% - 6px)`;
+  el.addEventListener('pointerdown', (e) => imgHandleDown(e, h));
+  imgOverlay.appendChild(el);
+}
+
+let activeImg = null;
+let imgDrag = null;   // state drag aktif
+let imgRaf = false;   // penanda requestAnimationFrame tertunda
+let imgPendingEv = null;
+
+function imgActivate(img) {
+  if (!(img instanceof HTMLImageElement) || !editor.contains(img)) return;
+  if (activeImg && activeImg !== img) activeImg.classList.remove('re-img-active');
+  activeImg = img;
+  img.classList.add('re-img-active');
+  imgOverlay.hidden = false;
+  imgPosition();
+}
+
+function imgDeactivate() {
+  if (imgDrag) return; // jangan ganggu proses drag
+  if (activeImg) activeImg.classList.remove('re-img-active');
+  activeImg = null;
+  imgOverlay.hidden = true;
+}
+
+function imgPosition() {
+  if (!activeImg) return;
+  const r = activeImg.getBoundingClientRect();
+  imgOverlay.style.left = `${r.left + window.scrollX}px`;
+  imgOverlay.style.top = `${r.top + window.scrollY}px`;
+  imgOverlay.style.width = `${r.width}px`;
+  imgOverlay.style.height = `${r.height}px`;
+}
+
+// Klik gambar → aktifkan bingkai; klik di luar → sembunyikan.
+editor.addEventListener('click', (e) => {
+  const t = e.target;
+  if (t && t.tagName === 'IMG' && editor.contains(t)) imgActivate(t);
+  else if (!imgOverlay.contains(t)) imgDeactivate();
+});
+
+window.addEventListener('scroll', () => { if (activeImg && !imgDrag) imgPosition(); }, true);
+window.addEventListener('resize', () => { if (activeImg && !imgDrag) imgPosition(); });
+
+// Bila gambar aktif dihapus dari editor (misal lewat undo), tutup bingkainya.
+new MutationObserver(() => {
+  if (activeImg && !editor.contains(activeImg)) imgDeactivate();
+}).observe(editor, { childList: true, subtree: true });
+
+function imgHandleDown(e, handle) {
+  if (!activeImg || e.button !== 0) return;
+  e.preventDefault();
+  e.stopPropagation();
+
+  const rect = activeImg.getBoundingClientRect();
+  const naturalW = activeImg.naturalWidth || rect.width;
+  const naturalH = activeImg.naturalHeight || rect.height;
+
+  imgDrag = {
+    dir: handle.dir,
+    startX: e.clientX,
+    startY: e.clientY,
+    startW: Math.max(rect.width, IMG_MIN_SIZE),
+    startH: Math.max(rect.height, IMG_MIN_SIZE),
+    ratio: (naturalW > 0 && naturalH > 0) ? naturalW / naturalH : (rect.width / rect.height || 1),
+    moved: false
+  };
+
+  imgOverlay.classList.add('re-resizing');
+  activeImg.classList.add('re-img-resizing');
+  try { e.target.setPointerCapture(e.pointerId); } catch (err) { /* noop */ }
+
+  window.addEventListener('pointermove', imgDragMove);
+  window.addEventListener('pointerup', imgDragEnd);
+  window.addEventListener('pointercancel', imgDragEnd);
+}
+
+function imgDragMove(e) {
+  if (!imgDrag) return;
+  imgDrag.moved = true;
+  imgPendingEv = e;
+  if (imgRaf) return;
+  imgRaf = true;
+  requestAnimationFrame(() => {
+    imgRaf = false;
+    if (imgPendingEv && imgDrag) imgApplyDrag(imgPendingEv);
+  });
+}
+
+function imgApplyDrag(e) {
+  const img = activeImg;
+  if (!imgDrag || !img) return;
+
+  let dx = e.clientX - imgDrag.startX;
+  let dy = e.clientY - imgDrag.startY;
+
+  // Sumbu yang dipengaruhi tiap handle:
+  //   e,w,ml,mr,sudut → horizontal ; n,s,ct,cb,sudut → vertikal
+  const H_DIRS = ['e', 'w', 'ml', 'mr', 'nw', 'ne', 'sw', 'se'];
+  const V_DIRS = ['n', 's', 'ct', 'cb', 'nw', 'ne', 'sw', 'se'];
+  const affectsW = H_DIRS.includes(imgDrag.dir);
+  const affectsH = V_DIRS.includes(imgDrag.dir);
+
+  // Handle kiri/atas: geser ke kiri/atas berarti memperbesar.
+  if (imgDrag.dir === 'w'  || imgDrag.dir === 'ml' || imgDrag.dir === 'nw' || imgDrag.dir === 'sw') dx = -dx;
+  if (imgDrag.dir === 'n'  || imgDrag.dir === 'ct' || imgDrag.dir === 'nw' || imgDrag.dir === 'ne') dy = -dy;
+
+  let w = affectsW ? imgDrag.startW + dx : imgDrag.startW;
+  let h = affectsH ? imgDrag.startH + dy : imgDrag.startH;
+
+  // Sudut + Shift = kunci rasio aspek asli (proportional).
+  const isCorner = /^[nesw][nesw]$/.test(imgDrag.dir);
+  if (isCorner && e.shiftKey) {
+    const scaleW = (imgDrag.startW + dx) / imgDrag.startW;
+    const scaleH = (imgDrag.startH + dy) / imgDrag.startH;
+    const s = Math.abs(dx) >= Math.abs(dy) ? scaleW : scaleH;
+    w = imgDrag.startW * s;
+    h = w / imgDrag.ratio;
+  }
+
+  // Batas minimum & maksimum (lebar area tulisan editor).
+  w = Math.max(IMG_MIN_SIZE, w);
+  h = Math.max(IMG_MIN_SIZE, h);
+  const cs = getComputedStyle(editor);
+  const innerMax = editor.clientWidth
+    - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+  if (innerMax > 0 && w > innerMax) {
+    const k = innerMax / w;
+    w = innerMax;
+    if (isCorner && e.shiftKey) h *= k;
+  }
+
+  img.style.width = `${Math.round(w)}px`;
+  img.style.height = `${Math.round(h)}px`;
+
+  imgPosition();
+  imgSizeBadge.textContent = `${Math.round(w)} × ${Math.round(h)}`;
+  imgSizeBadge.hidden = false;
+}
+
+function imgDragEnd() {
+  if (!imgDrag) return;
+  const changed = imgDrag.moved;
+  imgDrag = null;
+
+  window.removeEventListener('pointermove', imgDragMove);
+  window.removeEventListener('pointerup', imgDragEnd);
+  window.removeEventListener('pointercancel', imgDragEnd);
+
+  imgOverlay.classList.remove('re-resizing');
+  if (activeImg) activeImg.classList.remove('re-img-resizing');
+
+  if (changed && activeImg) {
+    // Simpan juga sebagai atribut width/height agar awet walau gaya dibersihkan.
+    const w = Math.round(parseFloat(activeImg.style.width) || activeImg.clientWidth);
+    const h = Math.round(parseFloat(activeImg.style.height) || activeImg.clientHeight);
+    activeImg.setAttribute('width', String(w));
+    activeImg.setAttribute('height', String(h));
+    imgSizeBadge.textContent = `${w} × ${h}`;
+    imgSizeBadge.hidden = false;
+    commitHistory();
+    saveContentDebounced();
+    updateStats();
+  }
+  setTimeout(() => { if (!imgDrag) imgSizeBadge.hidden = true; }, 900);
+}
+
+/* ------------------------------------------------------------------ */
 /* 16. TEMA & FULLSCREEN                                               */
 /* ------------------------------------------------------------------ */
 const btnTheme = document.getElementById('btnTheme');
@@ -1263,9 +1535,13 @@ lalu state-nya disinkronkan kembali dengan posisi kursor.</blockquote>
   <li>Warna teks &amp; warna sorotan</li>
   <li>Daftar berbutir dan bernomor, indentasi</li>
   <li>Tautan, gambar dari URL, unggah gambar</li>
+  <li>Klik gambar → bingkai dengan 12 titik handle untuk resize &amp; stretch
+      (sudut = dua sumbu, tepi = satu sumbu, Shift+sudut = rasio asli)</li>
   <li>Undo/redo dengan riwayat buatan sendiri</li>
   <li>Mode sumber HTML, autosave, tema gelap</li>
 </ul>
+<p>Coba klik gambar di bawah ini lalu tarik titik-titik di bingkainya untuk mengubah ukurannya:</p>
+<p><img src="https://picsum.photos/seed/richedit/480/270" alt="Contoh gambar yang bisa di-resize" style="max-width:100%"></p>
 <p>Selamat mencoba! 🎉</p>
 `;
 
