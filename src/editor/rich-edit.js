@@ -4,6 +4,8 @@ import History from '../core/history.js';
 import Commands from '../core/commands.js';
 import Autosave from '../core/autosave.js';
 import ImageResize from '../core/image-resize.js';
+import TableManager from '../core/table-manager.js';
+import TableResize from '../core/table-resize.js';
 import { sanitizeHTML } from '../core/sanitize.js';
 import Toolbar from '../ui/toolbar.js';
 import Modal from '../ui/modal.js';
@@ -54,6 +56,8 @@ export class RichEdit {
    * @param {boolean} [options.sanitizePaste=true]
    * @param {boolean} [options.imageResize=true] - klik gambar menampilkan bingkai
    *        dengan 12 titik handle untuk resize/stretch
+   * @param {boolean} [options.tableResize=true] - kursor di dalam tabel memunculkan
+   *        garis batas kolom yang bisa ditarik (drag) untuk menggeser lebar kolom
    */
   constructor(options = {}) {
     this.options = Object.assign({
@@ -151,7 +155,22 @@ export class RichEdit {
         askModal: (opts) => this.modal.ask(opts),
         openFileDialog: () => this.fileInput.click(),
         openFileDialogAsync: () => this._pickFileAsync(),
-        toggleSource: () => this.toggleSource()
+        toggleSource: () => this.toggleSource(),
+        getTableManager: () => this.tableManager,
+        notify: (msg) => this._emit('notify', { message: msg })
+      }
+    });
+
+    // TableManager — operasi struktural tabel (insert baris/kolom, merge, dll.)
+    this.tableManager = new TableManager({
+      editor: this.editor,
+      selection: this.selection,
+      history: this.history,
+      hooks: {
+        syncToolbar: () => this.toolbar.sync(this.selection),
+        updateStats: () => this.statusbar.update(),
+        afterFocus: () => { if (this.tableResize) this.tableResize.refresh(); },
+        onTableInserted: (table) => { if (this.tableResize) this.tableResize.activate(table); }
       }
     });
 
@@ -180,6 +199,9 @@ export class RichEdit {
 
     this.selection.onSync = () => {
       this.toolbar.sync(this.selection);
+      // Kursor pindah → sinkronkan handle geser kolom tabel (muncul saat
+      // kursor berada di dalam tabel, hilang saat keluar).
+      if (this.tableResize) this.tableResize.refresh();
     };
 
     // Resize gambar: klik <img> → bingkai + 12 titik handle (stretch/resize).
@@ -191,6 +213,20 @@ export class RichEdit {
           if (this.autosaveInstance) this.autosaveInstance.saveDebounced();
           this._emit('change', { html: this.getHTML() });
           this._emit('imageResize', { html: this.getHTML() });
+        }
+      });
+    }
+
+    // Geser kolom tabel secara dinamis: tarik garis batas kolom saat kursor
+    // berada di dalam tabel (opsi `tableResize: false` untuk mematikan).
+    if (this.options.tableResize !== false) {
+      this.tableResize = new TableResize({
+        editor: this.editor,
+        onCommit: () => {
+          this.history.commit();
+          if (this.autosaveInstance) this.autosaveInstance.saveDebounced();
+          this._emit('change', { html: this.getHTML() });
+          this._emit('tableResize', { html: this.getHTML() });
         }
       });
     }
@@ -402,6 +438,8 @@ export class RichEdit {
   destroy() {
     this.selection.destroy();
     if (this.imageResize) this.imageResize.destroy();
+    if (this.tableResize) this.tableResize.destroy();
+    if (this.tableManager && typeof this.tableManager.destroy === 'function') this.tableManager.destroy();
     this.modal.destroy();
     this.editor.remove();
     this.sourceEl.remove();

@@ -158,14 +158,56 @@ export class TableManager {
     // Sinkronkan teks sel dari DOM sebelum serialisasi (user mungkin mengetik
     // tanpa commit; span juga tidak boleh membawa konten ganda).
     this._syncTextsFromDom(table, grid);
+    // Simpan lebar kolom hasil drag (colgroup) agar tidak hilang saat rebuild.
+    const colWidths = this._colWidthsOf(table);
     const html = gridToHtml(grid, { styleAttr: '' });
     const wrap = document.createElement('div');
     wrap.innerHTML = html;
     const newTable = wrap.firstChild;
+    if (colWidths.length && newTable.rows.length) {
+      const cg = document.createElement('colgroup');
+      for (const w of colWidths) {
+        const col = document.createElement('col');
+        col.style.width = `${w}px`;
+        cg.appendChild(col);
+      }
+      newTable.insertBefore(cg, newTable.firstChild);
+      newTable.style.tableLayout = 'fixed';
+    }
     table.replaceWith(newTable);
+    // PERBAIKAN: kursor harus ikut berpindah ke sel target setelah tabel
+    // di-render ulang — tanpa ini fokus "macet" dan tabel tak bisa diedit
+    // / digeser dinamis setelah operasi insert/delete/move.
     this._focusCell(newTable, focus.r, focus.c);
     this._afterChange();
     return newTable;
+  }
+
+  /** Lebar kolom efektif (px) dari colgroup/ukur DOM — untuk dipertahankan. */
+  _colWidthsOf(table) {
+    const cg = table.querySelector(':scope > colgroup');
+    if (cg) {
+      const ws = [...cg.children]
+        .filter(el => el.tagName.toLowerCase() === 'col')
+        .map(el => parseFloat(el.style.width) || 0);
+      if (ws.some(w => w > 0)) return ws.map(w => Math.round(w));
+    }
+    try {
+      const widths = [];
+      for (const tr of table.rows) {
+        let c0 = 0;
+        for (const cell of tr.cells) {
+          const cs = Math.max(1, cell.colSpan || 1);
+          const w = cell.getBoundingClientRect().width / cs;
+          for (let i = 0; i < cs; i++) {
+            widths[c0 + i] = Math.max(widths[c0 + i] || 0, Math.round(w));
+          }
+          c0 += cs;
+        }
+        break; // baris pertama cukup bila layout fixed
+      }
+      return widths.filter(w => w > 0);
+    } catch (_) { return []; }
   }
 
   /** Salin innerHTML tiap sel DOM ke field `text` pada grid (match by posisi). */
@@ -192,13 +234,22 @@ export class TableManager {
     const cell = this._domCellAt(table, r, c);
     if (!cell) return;
     const range = document.createRange();
-    range.selectNodeContents(cell);
+    // Sel kosong hanya berisi <br> → kursor tepat sebelum <br> agar stabil.
+    if (cell.childNodes.length === 1 && cell.firstChild.nodeName === 'BR') {
+      range.setStartBefore(cell.firstChild);
+    } else {
+      range.selectNodeContents(cell);
+    }
     range.collapse(false);
     const sel = window.getSelection();
     sel.removeAllRanges();
     sel.addRange(range);
     this.selection.savedRange = range.cloneRange();
-    this.editor.focus();
+    this.editor.focus({ preventScroll: false });
+    // selectionchange tidak selalu terpicu saat range diprogram → sinkronkan
+    // toolbar & handle geser kolom secara manual.
+    if (this.selection.onSync) this.selection.onSync();
+    if (this.hooks.afterFocus) this.hooks.afterFocus();
   }
 
   /** Ambil elemen sel DOM pada koordinat logis (r,c) — mengikuti span. */
@@ -269,8 +320,32 @@ export class TableManager {
 
     this.selection.restore();
     document.execCommand('insertHTML', false, html + '<p><br></p>');
+
+    // PERBAIKAN: setelah tabel masuk ke editor, kursor harus ikut berpindah
+    // ke sel pertama (0,0) supaya pengguna bisa langsung mengetik dan tabel
+    // terdeteksi aktif (handle geser kolom muncul otomatis). Tanpa ini,
+    // kursor sering tertinggal di luar tabel sehingga tabel terasa "mati".
+    const table = this._lastInsertedTable(html);
+    if (table) {
+      this._focusCell(table, 0, 0);
+      if (this.hooks.onTableInserted) this.hooks.onTableInserted(table);
+    }
     this._afterChange();
     return true;
+  }
+
+  /** Temukan <table> hasil insertHTML: cocokkan jumlah sel dengan HTML yang disisipkan. */
+  _lastInsertedTable(html) {
+    const tables = [...this.editor.querySelectorAll('table')];
+    if (!tables.length) return null;
+    const expected = (html.match(/<(?:td|th)\b/gi) || []).length;
+    let best = null;
+    let bestDiff = Infinity;
+    for (const t of tables) {
+      const diff = Math.abs(t.querySelectorAll('td, th').length - expected);
+      if (diff < bestDiff) { bestDiff = diff; best = t; }
+    }
+    return best;
   }
 
   deleteTable() {

@@ -260,6 +260,67 @@
   #editor table { border-collapse: collapse; width: 100%; margin: .8em 0; }
   #editor td, #editor th { border: 1px solid var(--border); padding: 8px 10px; }
 
+  /* ============ GESER KOLOM TABEL: garis batas + handle drag ============ */
+  .re-table-resize {
+    position: absolute;
+    z-index: 9998;
+    pointer-events: none; /* hanya handle yang interaktif */
+  }
+  .re-table-resize[hidden] { display: none; }
+
+  .re-table-frame {
+    position: absolute;
+    inset: -2px;
+    border: 1px dashed var(--accent);
+    border-radius: 6px;
+    opacity: .45;
+  }
+
+  .re-table-handles { position: absolute; inset: 0; }
+
+  .re-table-handle {
+    position: absolute;
+    width: 7px;
+    cursor: col-resize;
+    pointer-events: auto;
+    touch-action: none;
+    background: transparent;
+    border-radius: 3px;
+  }
+  .re-table-handle::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    margin-left: -1px;
+    background: var(--accent);
+    opacity: 0;
+    transition: opacity .15s;
+  }
+  .re-table-handle:hover::after,
+  .re-table-resizing .re-table-handle::after { opacity: .8; }
+
+  .re-table-size {
+    position: absolute;
+    top: -26px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--panel-2, #222);
+    color: var(--text, #eee);
+    border: 1px solid var(--border, #444);
+    font-size: 11px;
+    line-height: 1;
+    padding: 4px 8px;
+    border-radius: 6px;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  .re-table-size[hidden] { display: none; }
+
+  #editor .re-table-active { outline: 1px dashed var(--accent); outline-offset: 2px; }
+
   /* ============ RESIZE GAMBAR: bingkai + 12 titik handle ============ */
   .re-img-resize {
     position: absolute;
@@ -702,6 +763,28 @@ function restoreSaved() {
   }
 }
 
+/** Letakkan kursor di sel pertama tabel terbaru dalam editor (setelah insert). */
+function focusFirstTableCell() {
+  const tables = editor.querySelectorAll('table');
+  if (!tables.length) return;
+  const table = tables[tables.length - 1];
+  const cell = table.querySelector('td, th');
+  if (!cell) return;
+  const range = document.createRange();
+  if (cell.childNodes.length === 1 && cell.firstChild && cell.firstChild.nodeName === 'BR') {
+    range.setStartBefore(cell.firstChild);
+  } else {
+    range.selectNodeContents(cell);
+  }
+  range.collapse(false);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+  savedRange = range.cloneRange();
+  editor.focus();
+  syncToolbar();
+}
+
 /** Ambil posisi kursor sebagai offset karakter (untuk riwayat undo). */
 function captureSelection() {
   const sel = window.getSelection();
@@ -954,6 +1037,10 @@ function runAction(act) {
       commitHistory();
       syncToolbar();
       updateStats();
+      // PERBAIKAN: setelah tabel ter-insert ke editor, kursor harus ikut
+      // berpindah ke sel pertama — tanpa ini fokus tertinggal dan tabel
+      // tidak bisa langsung diketik/digeser-geser secara dinamis.
+      focusFirstTableCell();
       break;
     }
 
@@ -1660,6 +1747,303 @@ function imgDragEnd() {
     updateStats();
   }
   setTimeout(() => { if (!imgDrag) imgSizeBadge.hidden = true; }, 900);
+}
+
+/* ------------------------------------------------------------------ */
+/* 15b. GESER KOLOM TABEL (drag garis batas kolom, dinamis)            */
+/* ------------------------------------------------------------------ */
+const tblOverlay = document.createElement('div');
+tblOverlay.className = 're-table-resize';
+tblOverlay.contentEditable = 'false';
+tblOverlay.hidden = true;
+document.body.appendChild(tblOverlay);
+
+const tblFrame = document.createElement('div');
+tblFrame.className = 're-table-frame';
+tblOverlay.appendChild(tblFrame);
+
+const tblHandlesWrap = document.createElement('div');
+tblHandlesWrap.className = 're-table-handles';
+tblOverlay.appendChild(tblHandlesWrap);
+
+const tblSizeBadge = document.createElement('span');
+tblSizeBadge.className = 're-table-size';
+tblSizeBadge.hidden = true;
+tblOverlay.appendChild(tblSizeBadge);
+
+let activeTable = null;   // tabel yang sedang aktif (kursor di dalamnya)
+let tblDrag = null;       // state drag aktif
+let tblRect = null;       // rect tabel terakhir (untuk posisi handle)
+
+const TBL_MIN_COL_W = 30;
+
+/** Tabel tempat kursor berada (atau null). */
+function tableFromCaret() {
+  const sel = window.getSelection();
+  if (!sel.rangeCount) return null;
+  let node = sel.getRangeAt(0).startContainer;
+  if (node.nodeType === 3) node = node.parentNode;
+  if (!node || !node.closest) return null;
+  const cell = node.closest('td, th');
+  const table = cell ? cell.closest('table') : node.closest('table');
+  return (table && editor.contains(table)) ? table : null;
+}
+
+function tblClearActive() {
+  if (activeTable) activeTable.classList.remove('re-table-active');
+}
+
+function tblDeactivate() {
+  if (tblDrag) return;
+  tblClearActive();
+  activeTable = null;
+  tblOverlay.hidden = true;
+  tblHandlesWrap.innerHTML = '';
+}
+
+function tblPosition() {
+  if (!activeTable) return;
+  tblRect = activeTable.getBoundingClientRect();
+  tblOverlay.style.left = `${tblRect.left + window.scrollX}px`;
+  tblOverlay.style.top = `${tblRect.top + window.scrollY}px`;
+  tblOverlay.style.width = `${tblRect.width}px`;
+  tblOverlay.style.height = `${tblRect.height}px`;
+  [...tblHandlesWrap.children].forEach(h => { h.style.height = `${tblRect.height}px`; });
+}
+
+/** Jumlah kolom efektif grid tabel (memperhitungkan colspan). */
+function tblColCount(table) {
+  let max = 0;
+  for (const tr of table.rows) {
+    let sum = 0;
+    for (const cell of tr.cells) sum += Math.max(1, cell.colSpan || 1);
+    max = Math.max(max, sum);
+  }
+  return max;
+}
+
+/** Ambil/bangun colgroup dengan satu <col> per kolom efektif. */
+function tblCols(table, ensure) {
+  let cg = table.querySelector(':scope > colgroup');
+  const n = tblColCount(table);
+  if (!cg && ensure) {
+    cg = document.createElement('colgroup');
+    table.insertBefore(cg, table.firstChild);
+  }
+  if (!cg) return [];
+  let cols = [...cg.children].filter(el => el.tagName.toLowerCase() === 'col');
+  if (ensure && cols.length < n) {
+    while (cols.length < n) {
+      const c = document.createElement('col');
+      cg.appendChild(c);
+      cols.push(c);
+    }
+    tblSyncCols(table, cols);
+  } else if (ensure && cols.length > n) {
+    cols.slice(n).forEach(c => c.remove());
+    cols = cols.slice(0, n);
+  }
+  return cols;
+}
+
+/** Ukur lebar tiap kolom efektif dari tepi kanan sel-sel uniknya. */
+function tblMeasure(table) {
+  const total = tblColCount(table);
+  if (!total) return [];
+  const rights = new Array(total).fill(null);
+  const seen = new Set();
+  for (const tr of table.rows) {
+    let c0 = 0;
+    for (const cell of tr.cells) {
+      const cs = Math.max(1, cell.colSpan || 1);
+      if (!seen.has(cell)) {
+        seen.add(cell);
+        const r = cell.getBoundingClientRect();
+        const endIdx = Math.min(total - 1, c0 + cs - 1);
+        if (rights[endIdx] === null) rights[endIdx] = r.right;
+      }
+      c0 += cs;
+    }
+  }
+  const widths = [];
+  let prev = table.getBoundingClientRect().left;
+  for (let i = 0; i < total; i++) {
+    const right = rights[i] !== null ? rights[i] : prev + TBL_MIN_COL_W;
+    widths.push(Math.max(TBL_MIN_COL_W, Math.round(right - prev)));
+    prev = right;
+  }
+  return widths;
+}
+
+/** Tulis hasil pengukuran ke <col> + kunci layout agar stabil & tersimpan. */
+function tblSyncCols(table, cols) {
+  const widths = tblMeasure(table);
+  cols.forEach((c, i) => { c.style.width = `${widths[i] || TBL_MIN_COL_W}px`; });
+  table.style.tableLayout = 'fixed';
+}
+
+function tblColumnWidths(table) {
+  const cols = tblCols(table, true);
+  if (cols.some(c => c.style && c.style.width)) {
+    return cols.map(c => parseFloat(c.style.width) || 0);
+  }
+  tblSyncCols(table, cols);
+  return cols.map(c => parseFloat(c.style.width) || 0);
+}
+
+/** Bangun ulang garis batas handle dari posisi kolom saat ini. */
+function tblBuildHandles(table) {
+  tblHandlesWrap.innerHTML = '';
+  if (!tblRect) return;
+  const widths = tblColumnWidths(table);
+  let x = 0;
+  for (let i = 0; i < widths.length - 1; i++) {
+    x += widths[i];
+    const h = document.createElement('span');
+    h.className = 're-table-handle';
+    h.dataset.idx = String(i);
+    h.style.top = '0px';
+    h.style.height = `${tblRect.height}px`;
+    h.style.left = `${x - 3.5}px`;
+    h.title = 'Tarik untuk mengubah lebar kolom · klik ganda untuk pas otomatis';
+    h.addEventListener('pointerdown', (e) => tblHandleDown(e, table, i));
+    h.addEventListener('dblclick', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      tblAutoFit(table, i);
+    });
+    tblHandlesWrap.appendChild(h);
+  }
+}
+
+/** Sinkronkan overlay dengan posisi kursor (dipanggil pada selectionchange). */
+function tblRefresh() {
+  if (tblDrag) return;
+  const table = tableFromCaret();
+  if (table !== activeTable) {
+    tblClearActive();
+    activeTable = table;
+    if (table) {
+      table.classList.add('re-table-active');
+      tblOverlay.hidden = false;
+    } else {
+      tblOverlay.hidden = true;
+      tblHandlesWrap.innerHTML = '';
+      return;
+    }
+  }
+  if (activeTable) {
+    if (!editor.contains(activeTable)) { tblDeactivate(); return; }
+    tblPosition();
+    tblBuildHandles(activeTable);
+  }
+}
+
+// Kursor pindah → handle geser kolom ikut muncul/berpindah/hilang.
+document.addEventListener('selectionchange', () => tblRefresh());
+window.addEventListener('scroll', () => { if (activeTable && !tblDrag) tblPosition(); }, true);
+window.addEventListener('resize', () => { if (activeTable && !tblDrag) tblRefresh(); });
+// Struktur konten berubah (ketikan, undo, operasi tabel) → segarkan handle.
+new MutationObserver(() => {
+  if (tblDrag) return;
+  if (activeTable && !editor.contains(activeTable)) { tblDeactivate(); return; }
+  tblRefresh();
+}).observe(editor, { childList: true, subtree: true, characterData: true });
+
+function tblHandleDown(e, table, idx) {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  e.stopPropagation();
+
+  const widths = tblColumnWidths(table);
+  if (idx >= widths.length) return;
+
+  tblDrag = {
+    table,
+    idx,
+    startX: e.clientX,
+    startW: Math.max(TBL_MIN_COL_W, widths[idx]),
+    moved: false
+  };
+  tblOverlay.classList.add('re-table-resizing');
+  try { e.target.setPointerCapture(e.pointerId); } catch (err) { /* noop */ }
+
+  window.addEventListener('pointermove', tblDragMove);
+  window.addEventListener('pointerup', tblDragEnd);
+  window.addEventListener('pointercancel', tblDragEnd);
+}
+
+function tblSetColWidth(table, idx, px) {
+  const cols = tblCols(table, true);
+  if (cols[idx]) cols[idx].style.width = `${Math.round(px)}px`;
+  table.style.tableLayout = 'fixed';
+}
+
+function tblDragMove(e) {
+  if (!tblDrag) return;
+  tblDrag.moved = true;
+  const w = Math.max(TBL_MIN_COL_W, tblDrag.startW + (e.clientX - tblDrag.startX));
+  tblSetColWidth(tblDrag.table, tblDrag.idx, w);
+  tblPosition();
+  tblSizeBadge.textContent = `Kolom ${tblDrag.idx + 1}: ${Math.round(w)}px`;
+  tblSizeBadge.hidden = false;
+}
+
+function tblDragEnd() {
+  if (!tblDrag) return;
+  const changed = tblDrag.moved;
+  const table = tblDrag.table;
+  tblDrag = null;
+
+  window.removeEventListener('pointermove', tblDragMove);
+  window.removeEventListener('pointerup', tblDragEnd);
+  window.removeEventListener('pointercancel', tblDragEnd);
+
+  tblOverlay.classList.remove('re-table-resizing');
+  if (changed) {
+    tblPosition();
+    tblBuildHandles(table);
+    commitHistory();
+    saveContentDebounced();
+    updateStats();
+  }
+  setTimeout(() => { if (!tblDrag) tblSizeBadge.hidden = true; }, 900);
+}
+
+/** Klik ganda handle: lebarkan kolom mengikuti teks terpanjangnya. */
+function tblAutoFit(table, idx) {
+  const cols = tblCols(table, true);
+  const probe = document.createElement('span');
+  probe.style.position = 'absolute';
+  probe.style.visibility = 'hidden';
+  probe.style.whiteSpace = 'nowrap';
+  document.body.appendChild(probe);
+  let need = TBL_MIN_COL_W;
+  for (const tr of table.rows) {
+    let c0 = 0;
+    for (const cell of tr.cells) {
+      const cs = Math.max(1, cell.colSpan || 1);
+      if (cs === 1 && c0 <= idx && idx < c0 + cs) {
+        probe.textContent = cell.textContent || '';
+        const st = getComputedStyle(cell);
+        need = Math.max(need, Math.ceil(probe.offsetWidth
+          + (parseFloat(st.paddingLeft) || 0) + (parseFloat(st.paddingRight) || 0)
+          + (parseFloat(st.borderLeftWidth) || 0) + (parseFloat(st.borderRightWidth) || 0) + 2));
+      }
+      c0 += cs;
+    }
+  }
+  probe.remove();
+  if (cols[idx]) cols[idx].style.width = `${need}px`;
+  table.style.tableLayout = 'fixed';
+  tblPosition();
+  tblBuildHandles(table);
+  tblSizeBadge.textContent = `Kolom ${idx + 1}: ${need}px`;
+  tblSizeBadge.hidden = false;
+  setTimeout(() => { if (!tblDrag) tblSizeBadge.hidden = true; }, 900);
+  commitHistory();
+  saveContentDebounced();
+  updateStats();
 }
 
 /* ------------------------------------------------------------------ */
