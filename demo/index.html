@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="id" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RichEdit — Demo Library</title>
+<link rel="stylesheet" href="../src/styles/theme.css" />
+<style>
+  /* Gaya halaman demo saja (kerang aplikasi di sekitar editor) */
+  .app {
+    width: 100%;
+    max-width: 1040px;
+    height: min(86vh, 900px);
+    display: flex;
+    flex-direction: column;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    transition: background .2s, border-color .2s;
+  }
+  .app.fullscreen {
+    position: fixed;
+    inset: 0;
+    max-width: none;
+    height: 100%;
+    border-radius: 0;
+    z-index: 100;
+  }
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel-2);
+    flex-shrink: 0;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 15px; letter-spacing: -.01em; }
+  .brand .logo {
+    width: 28px; height: 28px;
+    display: grid; place-items: center;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+    color: #fff; font-size: 15px;
+  }
+  .brand small {
+    font-weight: 500; font-size: 11px; color: var(--muted);
+    border: 1px solid var(--border); padding: 1px 6px; border-radius: 999px;
+  }
+  .topbar-actions { display: flex; gap: 6px; }
+  .icon-btn {
+    width: 32px; height: 32px;
+    display: grid; place-items: center;
+    border: 1px solid transparent; background: transparent;
+    color: var(--muted); border-radius: 8px; cursor: pointer; font-size: 15px;
+    transition: background .15s, color .15s;
+  }
+  .icon-btn:hover { background: var(--panel); color: var(--text); border-color: var(--border); }
+  .statusbar {
+    display: flex; align-items: center; gap: 16px;
+    padding: 8px 18px;
+    border-top: 1px solid var(--border);
+    background: var(--panel-2);
+    font-size: 12px; color: var(--muted);
+    flex-shrink: 0;
+  }
+  .statusbar .spacer { margin-left: auto; }
+  .saved-flash { color: #16a34a; transition: opacity .4s; }
+</style>
+</head>
+<body>
+
+<div class="app" id="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">✎</span>
+      <span>RichEdit <small>modular library</small></span>
+    </div>
+    <div class="topbar-actions">
+      <button class="icon-btn" id="btnTheme" title="Ganti tema">🌙</button>
+      <button class="icon-btn" id="btnFullscreen" title="Layar penuh">⛶</button>
+    </div>
+  </header>
+
+  <!-- Toolbar & area editor dibuat oleh library -->
+  <div id="surface"></div>
+
+  <div class="statusbar" id="statusbar">
+    <span data-re="words">0 kata</span>
+    <span data-re="chars">0 karakter</span>
+    <span class="spacer"></span>
+    <span data-re="saved">Tersimpan otomatis</span>
+  </div>
+</div>
+
+<script type="module">
+import { RichEdit } from '../src/index.js';
+
+const editor = new RichEdit({
+  element: '#surface',
+  statusbar: document.getElementById('statusbar')
+});
+
+// Contoh pemakaian event publik
+editor.on('change', ({ html }) => console.log('[demo] change:', html.length, 'byte'));
+editor.on('saved', () => {
+  const el = document.querySelector('[data-re="saved"]');
+  if (el) {
+    el.textContent = 'Tersimpan ✓';
+    el.classList.add('saved-flash');
+    setTimeout(() => { el.classList.remove('saved-flash'); el.textContent = 'Tersimpan otomatis'; }, 1200);
+  }
+});
+
+window.richEdit = editor; // untuk eksperimen di console
+
+// Tema
+const btnTheme = document.getElementById('btnTheme');
+const savedTheme = localStorage.getItem('richedit:theme');
+if (savedTheme) {
+  document.documentElement.dataset.theme = savedTheme;
+  btnTheme.textContent = savedTheme === 'dark' ? '☀️' : '🌙';
+}
+btnTheme.addEventListener('click', () => {
+  const isDark = document.documentElement.dataset.theme === 'dark';
+  document.documentElement.dataset.theme = isDark ? 'light' : 'dark';
+  btnTheme.textContent = isDark ? '🌙' : '☀️';
+  localStorage.setItem('richedit:theme', isDark ? 'light' : 'dark');
+});
+
+// Layar penuh
+document.getElementById('btnFullscreen').addEventListener('click', () => {
+  document.getElementById('app').classList.toggle('fullscreen');
+});
+</script>
+</body>
+</html>

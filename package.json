@@ -1,0 +1,37 @@
+{
+  "name": "richedit",
+  "version": "1.0.0",
+  "description": "Rich text editor murni JavaScript tanpa dependensi — modular, ringan, dengan undo/redo, sanitasi paste, mode sumber HTML, autosave, dan tema gelap.",
+  "type": "module",
+  "main": "dist/richedit.js",
+  "module": "src/index.js",
+  "browser": "dist/richedit.js",
+  "style": "dist/richedit.css",
+  "exports": {
+    ".": {
+      "import": "./src/index.js",
+      "default": "./dist/richedit.js"
+    },
+    "./styles": "./dist/richedit.css",
+    "./styles/*": "./src/styles/*"
+  },
+  "files": [
+    "src",
+    "dist"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "python3 -m http.server 8080"
+  },
+  "keywords": [
+    "rich-text-editor",
+    "wysiwyg",
+    "contenteditable",
+    "editor",
+    "vanilla-js",
+    "no-dependencies"
+  ],
+  "author": "",
+  "license": "MIT",
+  "sideEffects": false
+}
