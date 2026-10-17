@@ -423,6 +423,61 @@
   }
   .modal-actions button:hover { filter: brightness(1.06); }
 
+  /* Tab pilihan sumber gambar (URL / Komputer) */
+  .modal-tabs {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 14px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 4px;
+  }
+  .modal-tabs[hidden] { display: none; }
+  .modal-tabs button {
+    flex: 1;
+    height: 32px;
+    border: none;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--muted);
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .modal-tabs button.active {
+    background: var(--accent);
+    color: #fff;
+  }
+  .modal-file {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .modal-file[hidden] { display: none; }
+  .modal-pick {
+    height: 38px;
+    padding: 0 16px;
+    border-radius: 9px;
+    border: 1px dashed var(--border);
+    background: var(--panel-2);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .modal-pick:hover { border-color: var(--accent); filter: brightness(1.06); }
+  .modal-file span {
+    font-size: 12.5px;
+    color: var(--muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   /* Scrollbar halus */
   .surface::-webkit-scrollbar { width: 10px; }
   .surface::-webkit-scrollbar-thumb {
@@ -466,8 +521,18 @@
   <div class="modal-backdrop" data-close></div>
   <div class="modal-box">
     <h3 id="modalTitle">Judul</h3>
-    <label id="modalLabel" for="modalInput">Label</label>
-    <input type="text" id="modalInput" />
+    <div class="modal-tabs" id="modalTabs" hidden>
+      <button type="button" class="active" data-tab="url">Dari URL</button>
+      <button type="button" data-tab="file">Dari Komputer</button>
+    </div>
+    <div id="modalPanelUrl">
+      <label id="modalLabel" for="modalInput">Label</label>
+      <input type="text" id="modalInput" />
+    </div>
+    <div class="modal-file" id="modalPanelFile" hidden>
+      <button type="button" class="modal-pick" id="modalPick">Pilih Gambar…</button>
+      <span id="modalFilename">Belum ada berkas dipilih</span>
+    </div>
     <div class="modal-actions">
       <button type="button" data-close>Batal</button>
       <button type="button" class="primary" id="modalOk">Simpan</button>
@@ -987,12 +1052,29 @@ async function insertLink() {
 
 /* ----------------------------- Gambar ----------------------------- */
 async function insertImageUrl() {
-  const url = await askModal({
+  const result = await askModal({
     title: 'Sisipkan Gambar',
     label: 'URL gambar',
     value: 'https://',
-    placeholder: 'https://contoh.com/gambar.jpg'
+    placeholder: 'https://contoh.com/gambar.jpg',
+    tabs: true
   });
+  if (!result) return;
+
+  // Tab "Dari Komputer": hasil berupa objek { kind:'file', file }.
+  if (typeof result === 'object' && result.kind === 'file' && result.file) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      restoreSaved();
+      document.execCommand('insertHTML', false,
+        `<img src="${reader.result}" alt="" style="max-width:100%">`);
+      commitHistory();
+    };
+    reader.readAsDataURL(result.file);
+    return;
+  }
+
+  const url = typeof result === 'string' ? result : result.url;
   if (!url) return;
 
   restoreSaved();
@@ -1000,20 +1082,6 @@ async function insertImageUrl() {
     `<img src="${escAttr(url)}" alt="" style="max-width:100%">`);
   commitHistory();
 }
-
-fileImage.addEventListener('change', () => {
-  const file = fileImage.files && fileImage.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    restoreSaved();
-    document.execCommand('insertHTML', false,
-      `<img src="${reader.result}" alt="" style="max-width:100%">`);
-    commitHistory();
-    fileImage.value = '';
-  };
-  reader.readAsDataURL(file);
-});
 
 /* ------------------------------------------------------------------ */
 /* 10. MODE SUMBER HTML                                                */
@@ -1148,17 +1216,54 @@ const modalTitle = document.getElementById('modalTitle');
 const modalLabel = document.getElementById('modalLabel');
 const modalInput = document.getElementById('modalInput');
 const modalOk    = document.getElementById('modalOk');
+const modalTabs  = document.getElementById('modalTabs');
+const modalTabBtns = [...modalTabs.querySelectorAll('[data-tab]')];
+const modalPanelUrl  = document.getElementById('modalPanelUrl');
+const modalPanelFile = document.getElementById('modalPanelFile');
+const modalPick   = document.getElementById('modalPick');
+const modalFilename = document.getElementById('modalFilename');
 let modalResolve = null;
+let modalMode = 'url';    // 'url' | 'file' — hanya 'file' bila modal dibuka dengan tabs (khusus gambar)
+let modalFile = null;
 
-function askModal({ title, label, value = '', placeholder = '' }) {
+function setModalMode(mode) {
+  modalMode = mode;
+  modalTabBtns.forEach(b => b.classList.toggle('active', b.dataset.tab === mode));
+  modalPanelUrl.hidden  = mode !== 'url';
+  modalPanelFile.hidden = mode !== 'file';
+  if (mode === 'url') {
+    setTimeout(() => { modalInput.focus(); modalInput.select(); }, 30);
+  } else {
+    setTimeout(() => modalPick.focus(), 30);
+  }
+}
+
+/**
+ * Modal generik.
+ * - Tanpa `tabs` (mis. Sisipkan Tautan): HANYA form URL, tanpa input gambar.
+ * - Dengan `tabs` (Sisipkan Gambar): tab "Dari URL" dan "Dari Komputer".
+ */
+function askModal({ title, label, value = '', placeholder = '', tabs = false }) {
   return new Promise(resolve => {
     modalTitle.textContent = title;
     modalLabel.textContent = label;
     modalInput.value = value;
     modalInput.placeholder = placeholder;
+    modalTabs.hidden = !tabs;
+    modalFile = null;
+    modalFilename.textContent = 'Belum ada berkas dipilih';
+    if (tabs) {
+      setModalMode('url');
+    } else {
+      // Popup non-gambar (mis. tautan): hanya panel URL, tidak ada input gambar.
+      modalMode = 'url';
+      modalTabBtns.forEach(b => b.classList.toggle('active', b.dataset.tab === 'url'));
+      modalPanelUrl.hidden = false;
+      modalPanelFile.hidden = true;
+      setTimeout(() => { modalInput.focus(); modalInput.select(); }, 30);
+    }
     modal.hidden = false;
     modalResolve = resolve;
-    setTimeout(() => { modalInput.focus(); modalInput.select(); }, 30);
   });
 }
 
@@ -1170,12 +1275,48 @@ function closeModal(result) {
   }
 }
 
-modalOk.addEventListener('click', () => closeModal(modalInput.value.trim() || null));
+function submitModal() {
+  if (modalMode === 'file') {
+    closeModal(modalFile ? { kind: 'file', file: modalFile } : null);
+  } else {
+    closeModal(modalInput.value.trim() || null);
+  }
+}
+
+modalOk.addEventListener('click', submitModal);
 modal.querySelectorAll('[data-close]').forEach(el =>
   el.addEventListener('click', () => closeModal(null)));
 
+modalTabBtns.forEach(btn =>
+  btn.addEventListener('click', () => setModalMode(btn.dataset.tab)));
+
+// Tombol "Pilih Gambar…" memakai input file yang sama dengan toolbar Unggah.
+modalPick.addEventListener('click', () => fileImage.click());
+
+fileImage.addEventListener('change', () => {
+  const file = fileImage.files && fileImage.files[0];
+  if (!file) return;
+  // Bila dialog file dipicu dari popup Sisipkan Gambar (tab aktif),
+  // kembalikan filenya ke modal alih-alih menyisipkan langsung.
+  if (!modal.hidden && modalMode === 'file') {
+    modalFile = file;
+    modalFilename.textContent = `${file.name} (${Math.ceil(file.size / 1024)} KB)`;
+    fileImage.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    restoreSaved();
+    document.execCommand('insertHTML', false,
+      `<img src="${reader.result}" alt="" style="max-width:100%">`);
+    commitHistory();
+    fileImage.value = '';
+  };
+  reader.readAsDataURL(file);
+});
+
 modalInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') { e.preventDefault(); closeModal(modalInput.value.trim() || null); }
+  if (e.key === 'Enter') { e.preventDefault(); submitModal(); }
   if (e.key === 'Escape') { e.preventDefault(); closeModal(null); }
 });
 

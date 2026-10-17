@@ -103,6 +103,8 @@ export class Modal {
       this.inputEl.value = value;
       this.inputEl.placeholder = placeholder;
       this.tabsEl.hidden = !tabs;
+      // Panel "Dari Komputer" (input gambar) hanya boleh ada di modal dengan tab.
+      this.pickEl.style.display = tabs ? '' : 'none';
       this.onPickFile = onPickFile;
       this.file = null;
       this.filenameEl.textContent = 'Belum ada berkas dipilih';
