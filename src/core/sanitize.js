@@ -21,7 +21,9 @@ export const ALLOWED_ATTRS = {
 export const ALLOWED_STYLES = [
   'color', 'background-color', 'font-weight', 'font-style',
   'text-decoration', 'text-decoration-line', 'text-align',
-  'font-size', 'font-family'
+  'font-size', 'font-family',
+  // untuk gambar yang sudah di-resize lewat handle bingkai
+  'width', 'height', 'max-width'
 ];
 
 /**

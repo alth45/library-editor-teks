@@ -446,10 +446,67 @@
 }
 .re-editor pre code { background: none; border: none; padding: 0; }
 .re-editor a { color: var(--accent); text-decoration: underline; }
-.re-editor img { max-width: 100%; border-radius: 10px; display: block; margin: .6em 0; }
+.re-editor img { max-width: 100%; border-radius: 10px; display: block; margin: .6em 0; cursor: pointer; }
 .re-editor hr { border: none; border-top: 2px solid var(--border); margin: 1.4em 0; }
 .re-editor table { border-collapse: collapse; width: 100%; margin: .8em 0; }
 .re-editor td, .re-editor th { border: 1px solid var(--border); padding: 8px 10px; }
+
+/* ============ RESIZE GAMBAR: bingkai + 12 titik handle ============ */
+.re-img-resize {
+  position: absolute;
+  z-index: 9999;
+  pointer-events: none; /* hanya handle yang interaktif */
+}
+.re-img-resize[hidden] { display: none; }
+
+.re-img-frame {
+  position: absolute;
+  inset: 0;
+  border: 2px dashed var(--accent);
+  border-radius: 10px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .15);
+}
+
+.re-img-handle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: #fff;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .3);
+  pointer-events: auto;
+  touch-action: none;
+}
+.re-img-handle:hover { transform: scale(1.25); }
+
+/* Titik sudut sedikit lebih besar agar mudah ditarik */
+.re-rh-nw, .re-rh-ne, .re-rh-sw, .re-rh-se { width: 14px; height: 14px; }
+
+/* Titik tengah tepi dibuat persegi panjang pipih mengikuti arah sumbunya */
+.re-rh-n, .re-rh-s, .re-rh-ct, .re-rh-cb { width: 16px; height: 8px; border-radius: 4px; }
+.re-rh-e, .re-rh-w, .re-rh-ml, .re-rh-mr { width: 8px; height: 16px; border-radius: 4px; }
+
+.re-img-size {
+  position: absolute;
+  top: -26px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--panel-2, #222);
+  color: var(--text, #eee);
+  border: 1px solid var(--border, #444);
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.re-img-size[hidden] { display: none; }
+
+.re-img-active { outline: 2px solid var(--accent); outline-offset: 1px; }
+.re-img-resizing { opacity: .9; user-select: none; }
+.re-resizing .re-img-frame { border-style: solid; }
 
 .re-source {
   width: 100%;
