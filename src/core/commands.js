@@ -1,5 +1,23 @@
 import { escapeHtml, escapeAttr } from '../utils/dom.js';
 
+/** Peta action toolbar tabel → method TableManager. */
+const TABLE_METHODS = {
+  insertRowAbove: 'insertRowAbove',
+  insertRowBelow: 'insertRowBelow',
+  deleteRow: 'deleteRow',
+  insertColumnBefore: 'insertColumnBefore',
+  insertColumnAfter: 'insertColumnAfter',
+  deleteColumn: 'deleteColumn',
+  moveRowUp: 'moveRowUp',
+  moveRowDown: 'moveRowDown',
+  moveColumnLeft: 'moveColumnLeft',
+  moveColumnRight: 'moveColumnRight',
+  mergeCells: 'mergeCells',
+  splitCellOp: 'splitCell',
+  toggleCellHeader: 'toggleCellHeader',
+  deleteTable: 'deleteTable'
+};
+
 /**
  * Registry perintah editor. Membungkus `document.execCommand()`
  * (API bawaan browser) menjadi operasi-operasi tingkat tinggi:
@@ -89,9 +107,98 @@ export class Commands {
         if (this.hooks.toggleSource) this.hooks.toggleSource();
         break;
 
+      /* ----------------------------- Tabel ----------------------------- */
+
+      case 'insertTable': this.insertTable(); break;
+      case 'tableResize': this.resizeTableDialog(); break;
+
       default:
-        this.exec(action);
+        if (TABLE_METHODS[action]) {
+          this.runTableAction(action);
+        } else {
+          this.exec(action);
+        }
     }
+  }
+
+  /* ============================== Tabel ============================== */
+
+  /** true bila action merupakan perintah tabel (dipakai Toolbar untuk state). */
+  static isTableAction(action) {
+    return action === 'insertTable' || action === 'tableResize' ||
+      Object.prototype.hasOwnProperty.call(TABLE_METHODS, action);
+  }
+
+  /** Delegasi aksi struktural tabel ke TableManager (modul core/table.js). */
+  runTableAction(action) {
+    const tm = this.hooks.getTableManager && this.hooks.getTableManager();
+    if (!tm) {
+      if (this.hooks.notify) this.hooks.notify('Modul tabel tidak tersedia.');
+      return false;
+    }
+    const method = TABLE_METHODS[action];
+    if (!method || typeof tm[method] !== 'function') return false;
+    return tm[method]() !== false;
+  }
+
+  /** Dialog sisip tabel: grid picker 8×10 + pilihan jumlah baris header. */
+  async insertTable() {
+    const result = await this.hooks.askModal({
+      title: 'Sisipkan Tabel',
+      label: 'Arahkan untuk memilih ukuran, lalu klik:',
+      tablePicker: true,
+      pickRows: 8,
+      pickCols: 10
+    });
+    if (!result || typeof result !== 'object' || result.kind !== 'table') return;
+    const rows = Math.max(1, parseInt(result.rows, 10) || 3);
+    const cols = Math.max(1, parseInt(result.cols, 10) || 3);
+    const headerRows = Math.max(0, Math.min(rows, parseInt(result.headerRows, 10) || 0));
+    this._insertStructuredTable(rows, cols, headerRows);
+  }
+
+  /** Bangun tabel via fungsi murni table.js lalu sisipkan di posisi kursor. */
+  _insertStructuredTable(rows, cols, headerRows) {
+    const tm = this.hooks.getTableManager && this.hooks.getTableManager();
+    if (tm) return tm.insertTableWithHeaderRows(rows, cols, headerRows);
+    // Fallback tanpa TableManager: susun HTML langsung.
+    let html = '<table>';
+    for (let r = 0; r < rows; r++) {
+      html += '<tr>';
+      for (let c = 0; c < cols; c++) {
+        const tag = r < headerRows ? 'th' : 'td';
+        html += `<${tag}><br></${tag}>`;
+      }
+      html += '</tr>';
+    }
+    html += '</table><p><br></p>';
+    this.selection.restore();
+    document.execCommand('insertHTML', false, html);
+    this.history.commit();
+    if (this.hooks.syncToolbar) this.hooks.syncToolbar();
+    if (this.hooks.updateStats) this.hooks.updateStats();
+    return true;
+  }
+
+  /** Dialog ubah ukuran tabel pada posisi kursor. */
+  async resizeTableDialog() {
+    const tm = this.hooks.getTableManager && this.hooks.getTableManager();
+    const ctx = tm ? tm.context() : null;
+    if (!ctx) {
+      if (this.hooks.notify) this.hooks.notify('Kursor harus berada di dalam tabel.');
+      return;
+    }
+    const result = await this.hooks.askModal({
+      title: 'Ubah Ukuran Tabel',
+      label: `Saat ini ${ctx.rows} × ${ctx.cols}. Pilih ukuran baru:`,
+      tablePicker: true,
+      pickRows: 10,
+      pickCols: 12
+    });
+    if (!result) return;
+    const rows = Math.max(1, parseInt(result.rows, 10) || ctx.rows);
+    const cols = Math.max(1, parseInt(result.cols, 10) || ctx.cols);
+    tm.resizeTable(rows, cols);
   }
 
   /* --------------------------- Ukuran font --------------------------- */
