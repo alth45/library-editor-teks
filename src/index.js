@@ -14,6 +14,8 @@ export { History } from './core/history.js';
 export { Commands } from './core/commands.js';
 export { Autosave } from './core/autosave.js';
 export { ImageResize } from './core/image-resize.js';
+export { TableManager } from './core/table-manager.js';
+export { TableResize } from './core/table-resize.js';
 export { sanitizeHTML, ALLOWED_TAGS, ALLOWED_ATTRS, ALLOWED_STYLES } from './core/sanitize.js';
 
 // UI

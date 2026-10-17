@@ -7,7 +7,7 @@ export const ALLOWED_TAGS = new Set([
   'P', 'BR', 'B', 'STRONG', 'I', 'EM', 'U', 'S', 'STRIKE', 'DEL', 'INS', 'MARK',
   'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
   'UL', 'OL', 'LI', 'BLOCKQUOTE', 'PRE', 'CODE', 'SPAN', 'DIV', 'A', 'IMG', 'HR',
-  'TABLE', 'THEAD', 'TBODY', 'TFOOT', 'TR', 'TD', 'TH'
+  'TABLE', 'THEAD', 'TBODY', 'TFOOT', 'TR', 'TD', 'TH', 'COLGROUP', 'COL'
 ]);
 
 export const ALLOWED_ATTRS = {
@@ -15,6 +15,8 @@ export const ALLOWED_ATTRS = {
   IMG: ['src', 'alt', 'width', 'height'],
   TD: ['colspan', 'rowspan'],
   TH: ['colspan', 'rowspan'],
+  COL: ['span'],
+  COLGROUP: ['span'],
   '*': ['style']
 };
 
@@ -23,7 +25,9 @@ export const ALLOWED_STYLES = [
   'text-decoration', 'text-decoration-line', 'text-align',
   'font-size', 'font-family',
   // untuk gambar yang sudah di-resize lewat handle bingkai
-  'width', 'height', 'max-width'
+  'width', 'height', 'max-width',
+  // untuk tabel yang kolomnya digeser lewat handle geser kolom
+  'table-layout', 'border-collapse'
 ];
 
 /**
