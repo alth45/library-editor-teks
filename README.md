@@ -3,7 +3,8 @@
 Rich text editor **murni JavaScript** (tanpa dependensi runtime) yang dipecah
 menjadi struktur library modular, dibundel dengan **Vite**. Dibangun di atas `contenteditable` + `document.execCommand`,
 dengan undo/redo buatan sendiri, sanitasi paste berbasis whitelist, mode sumber HTML,
-autosave ke `localStorage`, dan tema gelap.
+autosave ke `localStorage`, resize gambar interaktif (bingkai + 12 titik handle),
+dan tema gelap.
 
 ## Struktur direktori
 
@@ -25,6 +26,7 @@ richedit/
 │   │   ├── history.js        # History — snapshot undo/redo dengan pemulihan seleksi
 │   │   ├── commands.js       # Commands — wrapper execCommand (bold, link, gambar, dll.)
 │   │   ├── autosave.js       # Autosave — simpan konten debounce ke Storage
+│   │   ├── image-resize.js   # ImageResize — bingkai + 12 titik handle resize gambar
 │   │   └── sanitize.js       # sanitizeHTML — whitelist tag/atribut/style
 │   ├── ui/
 │   │   ├── toolbar.js        # Toolbar — bangun DOM toolbar, sync state, event
@@ -98,6 +100,24 @@ menjadi satu file `dist/richedit.css` saat build library.
 | `initialHtml`   | (halaman selamat datang)| Konten awal bila belum ada yang tersimpan   |
 | `loadSaved`     | `true`                  | Muat konten tersimpan saat init             |
 | `sanitizePaste` | `true`                  | Sanitasi HTML hasil paste/setHTML           |
+| `imageResize`   | `true`                  | Klik gambar menampilkan bingkai + 12 titik handle resize |
+
+## Resize gambar
+
+Setelah gambar disisipkan ke kanvas editor, **klik gambar** tersebut untuk memunculkan
+bingkai (overlay) dengan **12 titik handle** — 3 titik di setiap sisi (ujung kiri,
+tengah, dan ujung kanan, begitu pula sekelilingnya):
+
+- **4 sudut** — resize dua sumbu sekaligus; tahan `Shift` untuk mengunci rasio asli gambar.
+- **8 titik tepi/tengah sisi** — stretch satu sumbu saja (lebar atau tinggi), sehingga
+  gambar bisa diubah bentuk, tidak hanya diperkecil/diperbesar secara proporsional.
+
+Detail implementasi: pointer events + `requestAnimationFrame`, badge ukuran piksel live
+saat menarik, batas minimum 24 px, maksimum selebar area editor, dan hasil resize
+langsung di-commit ke history (bisa di-undo) serta memicu autosave. Ukuran disimpan
+sebagai style `width/height/max-width` pada tag `<img>`, yang sudah masuk whitelist
+`src/core/sanitize.js` agar tidak dibuang sanitizer. Fitur ini juga tersedia pada
+versi standalone `editor.html` (blok "15b"). Nonaktifkan dengan opsi `imageResize: false`.
 
 ## API publik
 
@@ -109,7 +129,7 @@ editor.undo() / redo()
 editor.exec('bold')     // jalankan perintah
 editor.toggleSource()   // mode sumber HTML
 editor.save()           // paksa simpan
-editor.on('change'|'saved'|'sourceToggle', fn)
+editor.on('change'|'saved'|'sourceToggle'|'imageResize', fn)
 editor.destroy()
 ```
 
