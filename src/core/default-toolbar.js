@@ -50,6 +50,7 @@ export const DEFAULT_TOOLBAR = [
     { t: 'btn', act: 'link', icon: 'link', title: 'Sisipkan tautan (Ctrl+K)' },
     { t: 'btn', act: 'image', icon: 'image', title: 'Sisipkan gambar (URL / komputer)' },
     { t: 'btn', act: 'upload', icon: 'upload', title: 'Unggah gambar dari komputer' },
+    // Tombol "Sisipkan tabel" — ikon grid tabel, berada di antara Unggah & Garis pemisah.
     { t: 'btn', act: 'insertTable', icon: 'table', title: 'Sisipkan tabel' },
     { t: 'btn', act: 'hr', icon: 'hr', title: 'Garis pemisah' }
   ]},
