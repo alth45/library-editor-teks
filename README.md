@@ -1,7 +1,7 @@
 # RichEdit
 
-Rich text editor **murni JavaScript** (tanpa dependensi) yang dipecah menjadi
-struktur library modular. Dibangun di atas `contenteditable` + `document.execCommand`,
+Rich text editor **murni JavaScript** (tanpa dependensi runtime) yang dipecah
+menjadi struktur library modular, dibundel dengan **Vite**. Dibangun di atas `contenteditable` + `document.execCommand`,
 dengan undo/redo buatan sendiri, sanitasi paste berbasis whitelist, mode sumber HTML,
 autosave ke `localStorage`, dan tema gelap.
 
@@ -10,6 +10,7 @@ autosave ke `localStorage`, dan tema gelap.
 ```
 richedit/
 ├── package.json              # manifest npm (type: module, exports, scripts)
+├── vite.config.js            # konfigurasi Vite (dev server demo + build library)
 ├── README.md
 ├── .gitignore
 ├── editor.html               # versi asli single-file (dipertahankan sebagai referensi)
@@ -37,7 +38,7 @@ richedit/
 ├── demo/
 │   └── index.html            # demo memakai library dari src/ via ES modules
 ├── scripts/
-│   └── build.mjs             # bundler sederhana tanpa dependensi → dist/
+│   └── build.mjs             # bundler alternatif tanpa dependensi (`npm run build:legacy`)
 └── test/
     └── unit.test.mjs         # test fungsi pure (node test/unit.test.mjs)
 ```
@@ -57,16 +58,31 @@ richedit/
 </script>
 ```
 
-### 2. Bundle klasik (`dist/richedit.js`)
+### 2. Hasil bundel Vite (`npm run build` → `dist/`)
 
 ```html
+<!-- IIFE (skrip klasik, membuat global `RichEdit`) -->
 <link rel="stylesheet" href="dist/richedit.css" />
 <div id="surface"></div>
-<script src="dist/richedit.js"></script>
+<script src="dist/richedit.iife.js"></script>
 <script>
   const editor = new RichEdit({ element: '#surface' });
 </script>
 ```
+
+Atau sebagai ES module:
+
+```html
+<link rel="stylesheet" href="dist/richedit.css" />
+<div id="surface"></div>
+<script type="module">
+  import { RichEdit } from './dist/richedit.js';
+  const editor = new RichEdit({ element: '#surface' });
+</script>
+```
+
+Gaya sudah di-`import` oleh `src/index.js`, sehingga Vite otomatis mengekstraknya
+menjadi satu file `dist/richedit.css` saat build library.
 
 ## Opsi konstruktor
 
@@ -100,8 +116,12 @@ editor.destroy()
 ## Skrip
 
 ```bash
-npm run build   # bangun dist/richedit.js, richedit.esm.js, richedit.css
-npm run dev     # server statis (python3 -m http.server 8080) → buka /demo/
+npm install         # pasang Vite (satu-satunya devDependency)
+npm run dev         # dev server Vite + HMR → http://localhost:5179/demo/
+npm run build       # bundle library dengan Vite → dist/richedit.js (ESM),
+                    # dist/richedit.iife.js (global), dist/richedit.css (gabungan)
+npm run preview     # sajikan hasil build untuk pengecekan cepat
+npm run build:legacy  # opsional: bundler Node tanpa dependensi (scripts/build.mjs)
 node test/unit.test.mjs
 ```
 

@@ -2,6 +2,8 @@
  * RichEdit — entry point library.
  * Ekspor kelas utama plus modul internal untuk pemakaian tingkat lanjut.
  */
+import './styles/theme.css'; // diekstrak Vite menjadi dist/richedit.css saat build
+
 export { RichEdit, default as Editor } from './editor/rich-edit.js';
 
 // Inti
