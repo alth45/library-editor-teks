@@ -47,7 +47,7 @@ export class Commands {
         break;
 
       case 'link': this.insertLink(); break;
-      case 'image': this.insertImageUrl(); break;
+      case 'image': this.insertImage(); break;
       case 'upload': this.pickImageFile(); break;
 
       case 'hr': {
@@ -164,19 +164,45 @@ export class Commands {
 
   /* ----------------------------- Gambar ----------------------------- */
 
-  async insertImageUrl() {
-    const url = await this.hooks.askModal({
+  /**
+   * Popup "Sisipkan Gambar" dengan dua pilihan:
+   * 1. Dari URL    — input alamat gambar.
+   * 2. Dari Komputer — pilih berkas gambar lokal (disimpan sebagai base64).
+   */
+  async insertImage() {
+    const result = await this.hooks.askModal({
       title: 'Sisipkan Gambar',
       label: 'URL gambar',
       value: 'https://',
-      placeholder: 'https://contoh.com/gambar.jpg'
+      placeholder: 'https://contoh.com/gambar.jpg',
+      tabs: true,
+      onPickFile: () => this._openFileDialogAsync()
     });
-    if (!url) return;
+    if (!result) return;
 
+    if (typeof result === 'string') { // hook askModal versi lama (mengembalikan string)
+      this._insertImageAtUrl(result);
+    } else if (result.kind === 'file' && result.file) {
+      this.insertImageFile(result.file);
+    } else if (result.kind === 'url' && result.url) {
+      this._insertImageAtUrl(result.url);
+    }
+  }
+
+  _insertImageAtUrl(url) {
     this.selection.restore();
     document.execCommand('insertHTML', false,
       `<img src="${escapeAttr(url)}" alt="" style="max-width:100%">`);
     this.history.commit();
+  }
+
+  /** Buka dialog berkas dan tunggu hasilnya (Promise<File|null>). */
+  _openFileDialogAsync() {
+    if (!this.hooks.openFileDialog) return Promise.resolve(null);
+    if (this.hooks.openFileDialogAsync) return this.hooks.openFileDialogAsync();
+    // Fallback: hook lama (fire-and-forget) — RichEdit tetap menyisipkan via change event.
+    this.hooks.openFileDialog();
+    return Promise.resolve(null);
   }
 
   pickImageFile() {

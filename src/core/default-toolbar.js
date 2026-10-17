@@ -48,8 +48,8 @@ export const DEFAULT_TOOLBAR = [
   ]},
   { items: [
     { t: 'btn', act: 'link', icon: 'link', title: 'Sisipkan tautan (Ctrl+K)' },
-    { t: 'btn', act: 'image', icon: 'image', title: 'Gambar dari URL' },
-    { t: 'btn', act: 'upload', icon: 'upload', title: 'Unggah gambar' },
+    { t: 'btn', act: 'image', icon: 'image', title: 'Sisipkan gambar (URL / komputer)' },
+    { t: 'btn', act: 'upload', icon: 'upload', title: 'Unggah gambar dari komputer' },
     { t: 'btn', act: 'hr', icon: 'hr', title: 'Garis pemisah' }
   ]},
   { items: [

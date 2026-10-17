@@ -21,7 +21,7 @@ lalu state-nya disinkronkan kembali dengan posisi kursor.</blockquote>
   <li>Heading, kutipan, blok kode, garis pemisah</li>
   <li>Warna teks &amp; warna sorotan</li>
   <li>Daftar berbutir dan bernomor, indentasi</li>
-  <li>Tautan, gambar dari URL, unggah gambar</li>
+  <li>Tautan, gambar dari URL atau berkas komputer (popup 2 pilihan), unggah cepat</li>
   <li>Undo/redo dengan riwayat buatan sendiri</li>
   <li>Mode sumber HTML, autosave, tema gelap</li>
 </ul>
@@ -142,6 +142,7 @@ export class RichEdit {
         updateStats: () => this.statusbar.update(),
         askModal: (opts) => this.modal.ask(opts),
         openFileDialog: () => this.fileInput.click(),
+        openFileDialogAsync: () => this._pickFileAsync(),
         toggleSource: () => this.toggleSource()
       }
     });
@@ -204,8 +205,42 @@ export class RichEdit {
 
     this.fileInput.addEventListener('change', () => {
       const file = this.fileInput.files && this.fileInput.files[0];
-      if (file) this.commands.insertImageFile(file);
+      if (this._fileResolve) {
+        // Sedang menunggu hasil dialog dari modal "Sisipkan Gambar" (tab Komputer).
+        const resolve = this._fileResolve;
+        this._fileResolve = null;
+        resolve(file || null);
+      } else if (file) {
+        this.commands.insertImageFile(file);
+      }
       this.fileInput.value = '';
+    });
+  }
+
+  /** Buka dialog berkas & kembalikan Promise<File|null> (dibatalkan → null). */
+  _pickFileAsync() {
+    return new Promise(resolve => {
+      let settled = false;
+      const done = (file) => {
+        if (settled) return;
+        settled = true;
+        window.removeEventListener('focus', onBlur);
+        clearTimeout(timer);
+        this._fileResolve = null;
+        resolve(file);
+      };
+      this._fileResolve = done;
+
+      // Bila user menutup dialog tanpa memilih, tidak ada 'change' event —
+      // deteksi lewat kembali-fokus ke jendela dengan sedikit jeda.
+      const onBlur = () => setTimeout(() => {
+        const f = this.fileInput.files && this.fileInput.files[0];
+        done(f || null);
+      }, 600);
+      const timer = setTimeout(() => done(null), 120000); // pengaman 2 menit
+
+      window.addEventListener('focus', onBlur, { once: true });
+      this.fileInput.click();
     });
   }
 
